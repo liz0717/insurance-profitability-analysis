@@ -1,3 +1,8 @@
+檔案庫
+/
+app.py
+
+
 """Streamlit dashboard for the 2025 P&C insurer profitability project."""
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from src.validate_config import validate_configuration
 CONFIG_DIR = REPO_ROOT / "config"
 COMPANIES_FILE = CONFIG_DIR / "companies_2025.csv"
 METRICS_FILE = CONFIG_DIR / "metrics_2025.csv"
+SOURCES_FILE = CONFIG_DIR / "sources_2025.csv"
 
 
 @st.cache_data
@@ -40,7 +46,7 @@ st.caption("Global P&C Insurance Profitability Analysis — 2025")
 st.markdown(
     """
 本專案以公開財報比較六家產險公司或市場的核保獲利能力。
-目前版本先檢查公司、指標及輸出欄位設定；後續將加入財報擷取結果、
+目前版本先檢查公司、指標、來源及輸出欄位設定；後續將加入通用財報擷取流程、
 比較表、圖表及原始證據。
 """
 )
@@ -54,20 +60,19 @@ except Exception as exc:
 
 st.success("設定檔檢查成功")
 
-summary_columns = st.columns(4)
+summary_columns = st.columns(5)
 summary_columns[0].metric("比較對象", validation["companies"])
 summary_columns[1].metric("比較指標", validation["metrics"])
 summary_columns[2].metric("輸出欄位", validation["output_fields"])
-summary_columns[3].metric(
-    "待確認財報",
-    validation["source_documents_pending"],
-)
+summary_columns[3].metric("來源紀錄", validation["source_records"])
+summary_columns[4].metric("待補來源公司", validation["companies_without_sources"])
 
 companies = load_csv(COMPANIES_FILE)
 metrics = load_csv(METRICS_FILE)
+sources = load_csv(SOURCES_FILE)
 
 company_tab, metric_tab, progress_tab = st.tabs(
-    ["比較公司", "比較指標", "資料進度"]
+    ["比較公司", "比較指標", "資料來源"]
 )
 
 with company_tab:
@@ -104,26 +109,64 @@ with metric_tab:
     )
 
 with progress_tab:
-    st.subheader("官方財報蒐集進度")
-    progress = companies[
+    st.subheader("官方資料來源")
+
+    company_names = companies[
+        ["company_id", "display_name_zh", "display_name_en"]
+    ]
+    progress = sources.merge(
+        company_names,
+        on="company_id",
+        how="left",
+        validate="many_to_one",
+    )
+    progress = progress[
         [
             "display_name_zh",
             "display_name_en",
-            "fiscal_year",
+            "source_title",
+            "source_type",
+            "reporting_period",
+            "reporting_scope",
+            "currency",
+            "monetary_scale",
             "source_status",
-            "annual_report_url",
+            "source_url",
         ]
     ].copy()
     progress.columns = [
         "公司",
         "Company",
+        "來源名稱",
+        "格式",
         "年度",
+        "範圍",
+        "幣別",
+        "單位",
         "狀態",
-        "官方財報網址",
+        "官方網址",
     ]
+
     st.dataframe(
         progress,
         hide_index=True,
         use_container_width=True,
+        column_config={
+            "官方網址": st.column_config.LinkColumn(
+                "官方網址",
+                display_text="開啟來源",
+            )
+        },
     )
-    st.info("下一階段將逐家公司確認2025年官方財報及會計口徑。")
+
+    if validation["companies_without_sources"]:
+        missing_names = companies.loc[
+            companies["company_id"].isin(validation["company_ids_without_sources"]),
+            "display_name_zh",
+        ].tolist()
+        st.warning("尚待補充官方來源：" + "、".join(missing_names))
+
+    if validation["sources_needing_review"]:
+        st.info(
+            f"目前有 {validation['sources_needing_review']} 筆來源仍需確認指標涵蓋範圍。"
+        )
