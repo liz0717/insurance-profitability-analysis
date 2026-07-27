@@ -1,9 +1,10 @@
-"""Validate the configuration files for the 2025 P&C profitability project."""
+"""Validate configuration files for the 2025 P&C profitability project."""
 
 from __future__ import annotations
 
 import csv
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ CONFIG_DIR = REPO_ROOT / "config"
 COMPANIES_FILE = CONFIG_DIR / "companies_2025.csv"
 METRICS_FILE = CONFIG_DIR / "metrics_2025.csv"
 OUTPUT_FIELDS_FILE = CONFIG_DIR / "output_fields_2025.csv"
+SOURCES_FILE = CONFIG_DIR / "sources_2025.csv"
 
 
 EXPECTED_COMPANY_IDS = {
@@ -62,6 +64,23 @@ REQUIRED_OUTPUT_FIELDS = {
     "warning_message",
 }
 
+REQUIRED_SOURCE_COLUMNS = {
+    "source_id",
+    "company_id",
+    "source_title",
+    "source_type",
+    "source_url",
+    "reporting_period",
+    "reporting_scope",
+    "currency",
+    "monetary_scale",
+    "official_source",
+    "source_status",
+    "notes",
+}
+
+ALLOWED_SOURCE_TYPES = {"html", "pdf", "csv", "xlsx"}
+
 
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     """Read one UTF-8 CSV file and return its rows."""
@@ -70,7 +89,28 @@ def read_csv_rows(path: Path) -> list[dict[str, str]]:
         raise FileNotFoundError(f"Missing configuration file: {path}")
 
     with path.open("r", encoding="utf-8-sig", newline="") as file:
-        return list(csv.DictReader(file))
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None:
+            raise ValueError(f"{path.name}: missing CSV header")
+        return list(reader)
+
+
+def require_columns(
+    rows: list[dict[str, str]],
+    required_columns: set[str],
+    file_name: str,
+) -> None:
+    """Reject a CSV when required columns are absent."""
+
+    if not rows:
+        raise ValueError(f"{file_name}: no data rows found")
+
+    actual_columns = set(rows[0])
+    missing_columns = required_columns - actual_columns
+    if missing_columns:
+        raise ValueError(
+            f"{file_name}: missing columns {sorted(missing_columns)}"
+        )
 
 
 def validate_unique_values(
@@ -91,12 +131,22 @@ def validate_unique_values(
     return set(values)
 
 
+def is_http_url(value: str) -> bool:
+    """Return whether a value is an absolute HTTP or HTTPS URL."""
+
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
 def validate_configuration() -> dict[str, object]:
-    """Validate all three project configuration files."""
+    """Validate all project configuration files."""
 
     companies = read_csv_rows(COMPANIES_FILE)
     metrics = read_csv_rows(METRICS_FILE)
     output_fields = read_csv_rows(OUTPUT_FIELDS_FILE)
+    sources = read_csv_rows(SOURCES_FILE)
+
+    require_columns(sources, REQUIRED_SOURCE_COLUMNS, SOURCES_FILE.name)
 
     company_ids = validate_unique_values(
         companies,
@@ -113,12 +163,17 @@ def validate_configuration() -> dict[str, object]:
         "field_name",
         OUTPUT_FIELDS_FILE.name,
     )
+    validate_unique_values(
+        sources,
+        "source_id",
+        SOURCES_FILE.name,
+    )
 
     if company_ids != EXPECTED_COMPANY_IDS:
         missing = EXPECTED_COMPANY_IDS - company_ids
         unexpected = company_ids - EXPECTED_COMPANY_IDS
         raise ValueError(
-            f"Company configuration mismatch. "
+            "Company configuration mismatch. "
             f"Missing: {sorted(missing)}; unexpected: {sorted(unexpected)}"
         )
 
@@ -126,7 +181,7 @@ def validate_configuration() -> dict[str, object]:
         missing = EXPECTED_METRIC_IDS - metric_ids
         unexpected = metric_ids - EXPECTED_METRIC_IDS
         raise ValueError(
-            f"Metric configuration mismatch. "
+            "Metric configuration mismatch. "
             f"Missing: {sorted(missing)}; unexpected: {sorted(unexpected)}"
         )
 
@@ -146,6 +201,41 @@ def validate_configuration() -> dict[str, object]:
             f"Companies with an invalid fiscal year: {invalid_years}"
         )
 
+    source_company_ids = {
+        row.get("company_id", "").strip()
+        for row in sources
+    }
+    unknown_source_companies = source_company_ids - company_ids
+    if unknown_source_companies:
+        raise ValueError(
+            "Sources reference unknown company IDs: "
+            f"{sorted(unknown_source_companies)}"
+        )
+
+    invalid_source_types = sorted(
+        {
+            row.get("source_type", "").strip().lower()
+            for row in sources
+            if row.get("source_type", "").strip().lower()
+            not in ALLOWED_SOURCE_TYPES
+        }
+    )
+    if invalid_source_types:
+        raise ValueError(
+            f"Unsupported source types: {invalid_source_types}"
+        )
+
+    invalid_urls = [
+        row["source_id"]
+        for row in sources
+        if not is_http_url(row.get("source_url", "").strip())
+    ]
+    if invalid_urls:
+        raise ValueError(
+            f"Sources with invalid URLs: {invalid_urls}"
+        )
+
+    companies_without_sources = sorted(company_ids - source_company_ids)
     currencies = sorted(
         {
             row.get("reporting_currency", "").strip()
@@ -153,16 +243,21 @@ def validate_configuration() -> dict[str, object]:
             if row.get("reporting_currency", "").strip()
         }
     )
+    sources_needing_review = sum(
+        "review" in row.get("source_status", "").strip().lower()
+        for row in sources
+    )
 
     return {
         "companies": len(companies),
         "metrics": len(metrics),
         "output_fields": len(output_fields),
         "currencies": currencies,
-        "source_documents_pending": sum(
-            row.get("source_status", "").strip() == "pending"
-            for row in companies
-        ),
+        "source_records": len(sources),
+        "companies_with_sources": len(source_company_ids),
+        "companies_without_sources": len(companies_without_sources),
+        "company_ids_without_sources": companies_without_sources,
+        "sources_needing_review": sources_needing_review,
     }
 
 
@@ -174,7 +269,7 @@ if __name__ == "__main__":
     print(f"Metrics: {result['metrics']}")
     print(f"Output fields: {result['output_fields']}")
     print(f"Currencies: {', '.join(result['currencies'])}")
-    print(
-        "Source documents pending: "
-        f"{result['source_documents_pending']}"
-    )
+    print(f"Source records: {result['source_records']}")
+    print(f"Companies with sources: {result['companies_with_sources']}")
+    print(f"Companies without sources: {result['companies_without_sources']}")
+    print(f"Sources needing review: {result['sources_needing_review']}")
