@@ -1,0 +1,169 @@
+{
+  "version": "2025.1",
+  "description": "Generic multilingual search rules for P&C insurer profitability metrics. These rules are shared by every company.",
+  "metrics": {
+    "reported_combined_ratio": {
+      "value_type": "percentage",
+      "positive_terms": [
+        "combined ratio",
+        "reported combined ratio",
+        "calendar year combined ratio",
+        "綜合率",
+        "自留綜合率"
+      ],
+      "preferred_context_terms": [
+        "reported",
+        "calendar year",
+        "2025",
+        "property and casualty",
+        "P&C",
+        "non-life",
+        "產險",
+        "財產保險"
+      ],
+      "exclude_terms": [
+        "underlying combined ratio",
+        "adjusted combined ratio",
+        "accident year combined ratio excluding catastrophes",
+        "基礎綜合率",
+        "調整後綜合率"
+      ],
+      "percentage_min": 40.0,
+      "percentage_max": 160.0
+    },
+    "underlying_adjusted_combined_ratio": {
+      "value_type": "percentage",
+      "positive_terms": [
+        "underlying combined ratio",
+        "adjusted combined ratio",
+        "normalized combined ratio",
+        "accident year combined ratio excluding catastrophes",
+        "current accident year combined ratio excluding catastrophes",
+        "基礎綜合率",
+        "調整後綜合率",
+        "正常化綜合率"
+      ],
+      "preferred_context_terms": [
+        "underlying",
+        "adjusted",
+        "normalized",
+        "excluding catastrophe",
+        "excluding prior year development",
+        "accident year",
+        "2025"
+      ],
+      "exclude_terms": [],
+      "percentage_min": 40.0,
+      "percentage_max": 160.0
+    },
+    "loss_ratio": {
+      "value_type": "percentage",
+      "positive_terms": [
+        "loss ratio",
+        "claims ratio",
+        "loss and loss adjustment expense ratio",
+        "current accident year loss ratio",
+        "損失率",
+        "賠款率",
+        "自留賠款率"
+      ],
+      "preferred_context_terms": [
+        "2025",
+        "calendar year",
+        "accident year",
+        "claims incurred",
+        "earned premium",
+        "insurance revenue"
+      ],
+      "exclude_terms": [
+        "combined ratio",
+        "expense ratio"
+      ],
+      "percentage_min": 0.0,
+      "percentage_max": 150.0
+    },
+    "expense_ratio": {
+      "value_type": "percentage",
+      "positive_terms": [
+        "expense ratio",
+        "underwriting expense ratio",
+        "acquisition expense ratio",
+        "費用率",
+        "營業費用率",
+        "自留費用率"
+      ],
+      "preferred_context_terms": [
+        "2025",
+        "underwriting expense",
+        "acquisition cost",
+        "earned premium",
+        "insurance revenue"
+      ],
+      "exclude_terms": [
+        "combined ratio",
+        "loss ratio",
+        "investment expense ratio"
+      ],
+      "percentage_min": 0.0,
+      "percentage_max": 100.0
+    },
+    "underwriting_result": {
+      "value_type": "monetary",
+      "positive_terms": [
+        "underwriting result",
+        "underwriting income",
+        "underwriting profit",
+        "underwriting loss",
+        "insurance service result",
+        "核保損益",
+        "核保利潤",
+        "核保利益",
+        "保險服務結果"
+      ],
+      "preferred_context_terms": [
+        "2025",
+        "property and casualty",
+        "P&C",
+        "non-life",
+        "產險"
+      ],
+      "exclude_terms": [
+        "investment income",
+        "net investment income",
+        "投資收益"
+      ],
+      "allow_negative": true
+    },
+    "earned_premium_or_insurance_revenue": {
+      "value_type": "monetary",
+      "positive_terms": [
+        "net premiums earned",
+        "earned premiums",
+        "net earned premium",
+        "insurance revenue",
+        "property and casualty insurance revenue",
+        "已賺保費",
+        "滿期保費",
+        "自留滿期保費",
+        "保險收入",
+        "保險服務收入"
+      ],
+      "preferred_context_terms": [
+        "2025",
+        "property and casualty",
+        "P&C",
+        "non-life",
+        "產險",
+        "IFRS 17"
+      ],
+      "exclude_terms": [
+        "written premium",
+        "gross written premium",
+        "direct written premium",
+        "簽單保費",
+        "保費收入"
+      ],
+      "allow_negative": false
+    }
+  }
+}
