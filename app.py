@@ -1,8 +1,3 @@
-檔案庫
-/
-app.py
-
-
 """Streamlit dashboard for the 2025 P&C insurer profitability project."""
 
 from __future__ import annotations
