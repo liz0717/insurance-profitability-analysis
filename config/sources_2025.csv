@@ -1,0 +1,4 @@
+source_id,company_id,source_title,source_type,source_url,reporting_period,reporting_scope,currency,monetary_scale,official_source,source_status,notes
+cathay_financial_statements_2025,cathay_century,Cathay Century 2025 Financial Statements,html,https://www.cathay-ins.com.tw/INSPFWeb/english/financial-statements.html,2025,consolidated,TWD,thousand,true,verified_url,Contains consolidated balance sheet and income statement
+cathay_financial_highlights_2025,cathay_century,Cathay Century 2025 Financial Highlights,html,https://www.cathay-ins.com.tw/INSPFWeb/english/financial-highlights.html,2025,consolidated,TWD,million,true,verified_url,Contains written premium assets net worth and net income
+cathay_public_disclosure_2025,cathay_century,Cathay Century Public Disclosure Portal,html,https://www.cathay-ins.com.tw/INSPFWeb/servlet/HttpDispatcher/PFB5_0704/prompt,2025,standalone_non_life,TWD,mixed,true,needs_metric_review,Links to regulatory financial and business disclosures
