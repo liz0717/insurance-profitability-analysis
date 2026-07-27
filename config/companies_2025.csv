@@ -1,0 +1,7 @@
+company_id,display_name_zh,display_name_en,legal_entity_or_market,entity_type,reporting_scope,home_market,reporting_currency,fiscal_year,fiscal_year_end,accounting_basis,annual_report_url,source_status
+cathay_century,國泰產險,Cathay Century Insurance,Cathay Century Insurance Co. Ltd.,insurance_company,standalone_non_life,Taiwan,TWD,2025,2025-12-31,,,pending
+fubon_insurance,富邦產險,Fubon Insurance,Fubon Insurance Co. Ltd.,insurance_company,standalone_non_life,Taiwan,TWD,2025,2025-12-31,,,pending
+lloyds_market,勞合社市場,Lloyd's,Lloyd's market,insurance_market,market_aggregate,United Kingdom,GBP,2025,2025-12-31,,,pending
+chubb_p_and_c,安達產險集團,Chubb,Chubb Limited,insurance_group,consolidated_p_and_c,Global,USD,2025,2025-12-31,,,pending
+liberty_mutual,利寶互助保險集團,Liberty Mutual,Liberty Mutual Insurance Group,insurance_group,consolidated_p_and_c,United States,USD,2025,2025-12-31,,,pending
+progressive,前進保險集團,Progressive,The Progressive Corporation,insurance_group,consolidated_insurance_operations,United States,USD,2025,2025-12-31,,,pending
