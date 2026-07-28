@@ -6,13 +6,21 @@ into the existing app, or import and call the function directly.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
 from src.taiwan_reported_metrics import (
     TaiwanMetricsImportError,
+    add_company_ids,
     company_metric_summary,
     import_taiwan_reported_metrics,
+)
+
+REPO_ROOT = Path(__file__).resolve().parent
+TAIWAN_COMPANY_MAPPING_FILE = (
+    REPO_ROOT / "config" / "taiwan_company_mapping.csv"
 )
 
 
@@ -35,8 +43,15 @@ def render_taiwan_import_section() -> pd.DataFrame | None:
 
     try:
         report, metrics = import_taiwan_reported_metrics(uploaded_file)
+        metrics = add_company_ids(
+            metrics,
+            TAIWAN_COMPANY_MAPPING_FILE,
+        )
     except TaiwanMetricsImportError as error:
         st.error(f"匯入失敗：{error}")
+        return None
+    except FileNotFoundError:
+        st.error("找不到 config/taiwan_company_mapping.csv。")
         return None
 
     roc_years = sorted(report["年度"].unique())
@@ -46,6 +61,15 @@ def render_taiwan_import_section() -> pd.DataFrame | None:
     st.success(
         f"匯入成功：民國 {roc_year_text} 年、第 {quarter_text} 季，"
         f"共 {len(report)} 家公司。"
+    )
+    mapped_companies = (
+        metrics.loc[metrics["company_id"].ne(""), "company_id"]
+        .drop_duplicates()
+        .tolist()
+    )
+    st.caption(
+        f"已連接全球比較設定：{len(mapped_companies)} 家公司"
+        f"（{', '.join(mapped_companies)}）"
     )
 
     companies = sorted(report["公司名稱"].dropna().unique())
