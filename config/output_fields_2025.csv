@@ -12,7 +12,7 @@ metric_unit,string,true,percent|currency,Whether the value is a percentage or mo
 currency,string,false,TWD|GBP|USD|other|not_applicable,ISO currency of a monetary value
 monetary_scale,string,true,unit|thousand|million|billion|not_applicable,Scale used in the source document
 value_base_units,number,false,,Monetary value converted from the reported scale to individual currency units
-year_basis,string,true,calendar_year|fiscal_year|accident_year|current_accident_year|not_stated,Time basis used to calculate the metric
+year_basis,string,true,calendar_year|calendar_year_to_date|fiscal_year|accident_year|current_accident_year|not_stated,Time basis used to calculate the metric
 adjustment_basis,string,true,reported|underlying|adjusted|excluding_catastrophes|excluding_prior_year_development|excluding_catastrophes_and_prior_year_development|company_defined|not_applicable,Adjustments included or excluded from the metric
 ratio_denominator,string,false,net_premiums_earned|gross_premiums_earned|insurance_revenue|company_defined|not_stated|not_applicable,Revenue or premium denominator used for a ratio
 value_origin,string,true,reported|calculated,Whether the value is directly reported or calculated
