@@ -1,7 +1,7 @@
 company_id,display_name_zh,display_name_en,legal_entity_or_market,entity_type,reporting_scope,home_market,reporting_currency,fiscal_year,fiscal_year_end,accounting_basis,annual_report_url,source_status
-cathay_century,國泰產險,Cathay Century Insurance,Cathay Century Insurance Co. Ltd.,insurance_company,standalone_non_life,Taiwan,TWD,2025,2025-12-31,,,pending
-fubon_insurance,富邦產險,Fubon Insurance,Fubon Insurance Co. Ltd.,insurance_company,standalone_non_life,Taiwan,TWD,2025,2025-12-31,,,pending
-lloyds_market,勞合社市場,Lloyd's,Lloyd's market,insurance_market,market_aggregate,United Kingdom,GBP,2025,2025-12-31,,,pending
-chubb_p_and_c,安達產險集團,Chubb,Chubb Limited,insurance_group,consolidated_p_and_c,Global,USD,2025,2025-12-31,,,pending
-liberty_mutual,利寶互助保險集團,Liberty Mutual,Liberty Mutual Insurance Group,insurance_group,consolidated_p_and_c,United States,USD,2025,2025-12-31,,,pending
-progressive,前進保險集團,Progressive,The Progressive Corporation,insurance_group,consolidated_insurance_operations,United States,USD,2025,2025-12-31,,,pending
+cathay_century,國泰產險,Cathay Century Insurance,Cathay Century Insurance Co. Ltd.,insurance_company,standalone_non_life,Taiwan,TWD,2025,2025-12-31,Taiwan_local,https://www.cathay-ins.com.tw/INSPFWeb/english/financial-statements.html,verified_url
+fubon_insurance,富邦產險,Fubon Insurance,Fubon Insurance Co. Ltd.,insurance_company,standalone_non_life,Taiwan,TWD,2025,2025-12-31,Taiwan_local,https://www.fubon.com/insurance/en/esg/assets/pdf/2025_Fubon_Insurance_Consolidated_Financial_Statements.pdf,verified_url
+lloyds_market,勞合社市場,Lloyd's,Lloyd's market,insurance_market,market_aggregate,United Kingdom,GBP,2025,2025-12-31,Lloyds_market_basis,https://assets.lloyds.com/media-651c0e64-c1d0-4f97-90f7-883c69fe2ef2/42102f78-bc6d-40be-8d43-52ef92775992/2025%20Lloyd%27s%20Annual%20Report.pdf,verified_url
+chubb_p_and_c,安達產險集團,Chubb,Chubb Limited,insurance_group,consolidated_p_and_c,Global,USD,2025,2025-12-31,US_GAAP,https://www.chubb.com/content/dam/annual-corporate-governance/2026/a-chubb-limited/chubb-limited-annual-report-2025.pdf,verified_url
+liberty_mutual,利寶互助保險集團,Liberty Mutual,Liberty Mutual Holding Company Inc.,insurance_group,consolidated_p_and_c,United States,USD,2025,2025-12-31,US_GAAP,https://www.libertymutualgroup.com/about-lm/investor-relations/documents/q4-2025-financial-statements.pdf,verified_url
+progressive,前進保險集團,Progressive,The Progressive Corporation,insurance_group,consolidated_insurance_operations,United States,USD,2025,2025-12-31,US_GAAP,https://s202.q4cdn.com/605347829/files/doc_financials/2025/q4/interactive/progressive-ir-25/pdfs/Progressive-2025-AR.pdf,verified_url
