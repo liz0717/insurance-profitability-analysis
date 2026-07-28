@@ -14,7 +14,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.validate_config import validate_configuration
-
+from streamlit_taiwan_import_section import render_taiwan_import_section
 
 CONFIG_DIR = REPO_ROOT / "config"
 COMPANIES_FILE = CONFIG_DIR / "companies_2025.csv"
@@ -66,8 +66,8 @@ companies = load_csv(COMPANIES_FILE)
 metrics = load_csv(METRICS_FILE)
 sources = load_csv(SOURCES_FILE)
 
-company_tab, metric_tab, progress_tab = st.tabs(
-    ["比較公司", "比較指標", "資料來源"]
+company_tab, metric_tab, progress_tab, taiwan_tab = st.tabs(
+    ["比較公司", "比較指標", "資料來源", "國內官方指標"]
 )
 
 with company_tab:
@@ -165,3 +165,6 @@ with progress_tab:
         st.info(
             f"目前有 {validation['sources_needing_review']} 筆來源仍需確認指標涵蓋範圍。"
         )
+
+with taiwan_tab:
+    taiwan_reported_metrics = render_taiwan_import_section()
