@@ -60,6 +60,11 @@ OUTPUT_COLUMNS = [
     "validation_status",
 ]
 
+MAPPING_REQUIRED_COLUMNS = {
+    "source_company_name",
+    "company_id",
+}
+
 
 class TaiwanMetricsImportError(ValueError):
     """Raised when an uploaded file is not a supported indicator report."""
@@ -251,6 +256,79 @@ def import_taiwan_reported_metrics(
     report = load_taiwan_indicator_report(source)
     metrics = to_standard_metrics(report)
     return report, metrics
+
+
+def add_company_ids(
+    metrics: pd.DataFrame,
+    mapping_source: str | Path | bytes | BinaryIO | TextIO,
+) -> pd.DataFrame:
+    """Attach project company IDs using an external name-mapping CSV.
+
+    Insurers not included in the mapping remain available in the imported
+    report and receive an empty ``company_id``.
+    """
+
+    mapping_text = _decode_report(_read_bytes(mapping_source))
+    mapping = pd.read_csv(
+        io.StringIO(mapping_text),
+        dtype="string",
+    ).fillna("")
+    mapping.columns = mapping.columns.str.strip()
+
+    missing = MAPPING_REQUIRED_COLUMNS.difference(mapping.columns)
+    if missing:
+        raise TaiwanMetricsImportError(
+            f"公司名稱對照檔缺少必要欄位：{'、'.join(sorted(missing))}"
+        )
+
+    mapping = mapping[
+        ["source_company_name", "company_id"]
+    ].copy()
+    mapping["source_company_name"] = (
+        mapping["source_company_name"].astype("string").str.strip()
+    )
+    mapping["company_id"] = mapping["company_id"].astype("string").str.strip()
+
+    empty_rows = mapping[
+        mapping["source_company_name"].eq("") | mapping["company_id"].eq("")
+    ]
+    if not empty_rows.empty:
+        raise TaiwanMetricsImportError(
+            "公司名稱對照檔的 source_company_name 與 company_id 不可空白。"
+        )
+
+    duplicate_names = mapping["source_company_name"].duplicated(keep=False)
+    if duplicate_names.any():
+        names = "、".join(
+            mapping.loc[
+                duplicate_names,
+                "source_company_name",
+            ].drop_duplicates()
+        )
+        raise TaiwanMetricsImportError(f"公司名稱對照重複：{names}")
+
+    duplicate_ids = mapping["company_id"].duplicated(keep=False)
+    if duplicate_ids.any():
+        ids = "、".join(
+            mapping.loc[duplicate_ids, "company_id"].drop_duplicates()
+        )
+        raise TaiwanMetricsImportError(f"company_id 對照重複：{ids}")
+
+    mapped = metrics.merge(
+        mapping,
+        left_on="company_name",
+        right_on="source_company_name",
+        how="left",
+        validate="many_to_one",
+    )
+    mapped = mapped.drop(columns="source_company_name")
+    mapped["company_id"] = mapped["company_id"].fillna("")
+
+    ordered_columns = [
+        "company_id",
+        *[column for column in mapped.columns if column != "company_id"],
+    ]
+    return mapped[ordered_columns]
 
 
 def company_metric_summary(
