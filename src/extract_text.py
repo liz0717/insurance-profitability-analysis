@@ -15,11 +15,15 @@ python src/extract_text.py
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
+import fitz
 import pandas as pd
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
@@ -32,6 +36,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT_DIR = PROJECT_ROOT / "data" / "raw"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data" / "text"
 DEFAULT_MANIFEST_PATH = PROJECT_ROOT / "data" / "text_manifest_2025.csv"
+
+# 台灣公開資訊檔案常見的文字編碼。
+# latin1 幾乎能解碼任何位元組，因此必須放在最後，避免它搶先產生亂碼。
+TEXT_ENCODINGS = (
+    "utf-8-sig",
+    "utf-8",
+    "cp950",
+    "big5",
+    "cp1252",
+    "latin1",
+)
+
+# 少於此字數的 PDF 頁面可能只擷取到頁碼或頁首頁尾，
+# 會再交由 PyMuPDF 嘗試擷取。
+MIN_PDF_PAGE_CHARACTERS = 20
 
 
 def normalize_text(text: str) -> str:
@@ -109,25 +128,140 @@ def detect_document_type(file_path: Path) -> Optional[str]:
     return None
 
 
-def extract_pdf(file_path: Path) -> tuple[str, int]:
+def meaningful_character_count(text: str) -> int:
     """
-    從 PDF 財報逐頁擷取文字。
-    回傳：文字內容、頁數。
+    計算排除空白後的實際文字量。
+    用於判斷 PDF 是否只有頁碼標記而沒有可搜尋正文。
+    """
+    return len(re.sub(r"\s+", "", text or ""))
+
+
+def extract_pdf_with_pypdf(
+    file_path: Path,
+) -> tuple[list[str], list[str]]:
+    """
+    使用 pypdf 逐頁擷取。
+    回傳每頁文字與每頁錯誤訊息；單頁失敗不會中止整份財報。
     """
     reader = PdfReader(str(file_path))
-    pages = []
+    page_texts = []
+    page_errors = []
 
     for page_number, page in enumerate(reader.pages, start=1):
         try:
-            page_text = page.extract_text() or ""
+            page_texts.append(page.extract_text() or "")
+            page_errors.append("")
         except Exception as error:
-            page_text = f"[第 {page_number} 頁擷取失敗：{error}]"
+            page_texts.append("")
+            page_errors.append(
+                f"第 {page_number} 頁 pypdf 擷取失敗：{error}"
+            )
 
-        pages.append(
-            f"===== PAGE {page_number} =====\n{page_text}"
+    return page_texts, page_errors
+
+
+def extract_pdf_with_pymupdf(file_path: Path) -> list[str]:
+    """
+    使用 PyMuPDF 逐頁擷取，作為 pypdf 的備援。
+    """
+    page_texts = []
+
+    with fitz.open(file_path) as document:
+        for page in document:
+            page_texts.append(page.get_text("text") or "")
+
+    return page_texts
+
+
+def extract_pdf(file_path: Path) -> tuple[str, int]:
+    """
+    從 PDF 財報逐頁擷取文字。
+    預設使用 pypdf；若頁面文字過少或擷取失敗，改用 PyMuPDF
+    擷取並逐頁選擇文字量較完整的結果。
+    回傳：文字內容、頁數。
+    """
+    pypdf_pages: list[str] = []
+    pypdf_errors: list[str] = []
+    pypdf_document_error = ""
+
+    try:
+        pypdf_pages, pypdf_errors = extract_pdf_with_pypdf(file_path)
+    except Exception as error:
+        pypdf_document_error = str(error)
+
+    needs_fallback = (
+        not pypdf_pages
+        or bool(pypdf_document_error)
+        or any(pypdf_errors)
+        or any(
+            meaningful_character_count(page_text)
+            < MIN_PDF_PAGE_CHARACTERS
+            for page_text in pypdf_pages
+        )
+    )
+
+    pymupdf_pages: list[str] = []
+    pymupdf_document_error = ""
+
+    if needs_fallback:
+        try:
+            pymupdf_pages = extract_pdf_with_pymupdf(file_path)
+        except Exception as error:
+            pymupdf_document_error = str(error)
+
+    page_count = max(len(pypdf_pages), len(pymupdf_pages))
+
+    if page_count == 0:
+        errors = [
+            message
+            for message in (
+                pypdf_document_error,
+                pymupdf_document_error,
+            )
+            if message
+        ]
+        error_detail = "；".join(errors) or "無法讀取 PDF 頁面"
+        raise ValueError(f"PDF 文字擷取失敗：{error_detail}")
+
+    selected_pages = []
+
+    for page_index in range(page_count):
+        candidates = []
+
+        if page_index < len(pypdf_pages):
+            candidates.append(pypdf_pages[page_index])
+
+        if page_index < len(pymupdf_pages):
+            candidates.append(pymupdf_pages[page_index])
+
+        selected_pages.append(
+            max(
+                candidates,
+                key=meaningful_character_count,
+                default="",
+            )
         )
 
-    return "\n\n".join(pages), len(reader.pages)
+    total_text_characters = sum(
+        meaningful_character_count(page_text)
+        for page_text in selected_pages
+    )
+
+    if total_text_characters == 0:
+        raise ValueError(
+            "未擷取到可搜尋文字；PDF 可能是掃描影像，"
+            "目前版本尚未執行 OCR"
+        )
+
+    pages_with_markers = [
+        f"===== PAGE {page_number} =====\n{page_text}"
+        for page_number, page_text in enumerate(
+            selected_pages,
+            start=1,
+        )
+    ]
+
+    return "\n\n".join(pages_with_markers), page_count
 
 
 def extract_html(file_path: Path) -> tuple[str, int]:
@@ -149,14 +283,122 @@ def extract_html(file_path: Path) -> tuple[str, int]:
     return text, 1
 
 
+def make_unique_column_names(columns: list[str]) -> list[str]:
+    """
+    將空白或重複欄名轉成可安全使用的唯一欄名。
+    """
+    unique_columns = []
+    occurrences: dict[str, int] = {}
+
+    for column_number, raw_column in enumerate(columns, start=1):
+        base_name = str(raw_column).strip() or f"column_{column_number}"
+        occurrences[base_name] = occurrences.get(base_name, 0) + 1
+
+        if occurrences[base_name] == 1:
+            unique_columns.append(base_name)
+        else:
+            unique_columns.append(
+                f"{base_name}_{occurrences[base_name]}"
+            )
+
+    return unique_columns
+
+
+def read_irregular_delimited_file(
+    file_path: Path,
+    encoding: str,
+) -> pd.DataFrame:
+    """
+    讀取含有報表標題、期間說明等多行前置內容的 CSV／TSV。
+
+    台灣公開資訊 CSV 常在正式欄名之前放置數列不同的說明列，
+    pandas 直接讀取時會出現 ParserError。本函式會找出最可能的
+    正式欄名列，再將後續資料轉成表格。
+    """
+    decoded_text = file_path.read_text(encoding=encoding)
+
+    if file_path.suffix.lower() == ".tsv":
+        delimiter = "\t"
+    else:
+        try:
+            dialect = csv.Sniffer().sniff(
+                decoded_text[:8192],
+                delimiters=",\t;|",
+            )
+            delimiter = dialect.delimiter
+        except csv.Error:
+            delimiter = ","
+
+    rows = list(
+        csv.reader(
+            io.StringIO(decoded_text),
+            delimiter=delimiter,
+        )
+    )
+    non_empty_rows = [
+        (row_index, row)
+        for row_index, row in enumerate(rows)
+        if any(str(value).strip() for value in row)
+    ]
+
+    if not non_empty_rows:
+        return pd.DataFrame()
+
+    width_counts = Counter(
+        len(row)
+        for _, row in non_empty_rows
+        if len(row) > 1
+    )
+    repeated_widths = [
+        width
+        for width, count in width_counts.items()
+        if count >= 2
+    ]
+
+    if repeated_widths:
+        expected_width = max(repeated_widths)
+    else:
+        expected_width = max(
+            len(row)
+            for _, row in non_empty_rows
+        )
+
+    header_index, header_row = next(
+        (row_index, row)
+        for row_index, row in non_empty_rows
+        if len(row) == expected_width
+    )
+    columns = make_unique_column_names(header_row)
+    data_rows = []
+
+    for row in rows[header_index + 1:]:
+        if not any(str(value).strip() for value in row):
+            continue
+
+        normalized_row = list(row[:expected_width])
+
+        if len(normalized_row) < expected_width:
+            normalized_row.extend(
+                [""] * (expected_width - len(normalized_row))
+            )
+
+        data_rows.append(normalized_row)
+
+    return pd.DataFrame(
+        data_rows,
+        columns=columns,
+        dtype=str,
+    )
+
+
 def read_csv_with_fallback(file_path: Path) -> pd.DataFrame:
     """
-    使用常見編碼讀取 CSV，避免不同國家財報產生亂碼。
+    使用常見編碼讀取 CSV，避免不同國家財報產生亂碼；
+    若檔案含多行前置說明，再自動辨識正式欄名列。
     """
-    encodings = ["utf-8-sig", "utf-8", "cp1252", "latin1"]
     last_error = None
 
-    for encoding in encodings:
+    for encoding in TEXT_ENCODINGS:
         try:
             return pd.read_csv(
                 file_path,
@@ -168,6 +410,14 @@ def read_csv_with_fallback(file_path: Path) -> pd.DataFrame:
             )
         except Exception as error:
             last_error = error
+
+            try:
+                return read_irregular_delimited_file(
+                    file_path,
+                    encoding=encoding,
+                )
+            except Exception as fallback_error:
+                last_error = fallback_error
 
     raise ValueError(
         f"無法讀取 CSV：{last_error}"
@@ -251,10 +501,9 @@ def extract_plain_text(file_path: Path) -> tuple[str, int]:
     """
     讀取純文字格式財報。
     """
-    encodings = ["utf-8-sig", "utf-8", "cp1252", "latin1"]
     last_error = None
 
-    for encoding in encodings:
+    for encoding in TEXT_ENCODINGS:
         try:
             text = file_path.read_text(encoding=encoding)
             return text, 1
