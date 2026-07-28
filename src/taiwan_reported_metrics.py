@@ -1,11 +1,12 @@
-"""Import reported metrics from Taiwan non-life insurance public disclosures.
+"""Import Taiwan non-life insurers' official underwriting ratios.
 
-The Financial Supervisory Commission export ``RPT-06161601.csv`` contains
-report metadata before the real header row.  This module locates the header
-dynamically, preserves the report's year and quarter, and converts the three
-official underwriting ratios into a stable schema used by the comparison app.
+The Financial Supervisory Commission report ``RPT-06161601.csv`` contains
+metadata rows before the real CSV header.  This module locates that header,
+preserves the reporting year and quarter, and converts the three official
+underwriting ratios into the metric IDs used by the global comparison project.
 
-No insurer name, year, or reported value is embedded in the code.
+The importer remains company-independent: insurer names, years, quarters, and
+reported values all come from the uploaded report or configuration files.
 """
 
 from __future__ import annotations
@@ -18,7 +19,9 @@ from typing import BinaryIO, TextIO
 import pandas as pd
 
 
+REPORT_CODE = "RPT-06161601"
 REPORT_NAME = "表06161601-產險財務業務指標"
+REPORT_SOURCE_URL = "https://ins-info.ib.gov.tw/customer/RPT-06161601.aspx"
 
 REQUIRED_COLUMNS = {
     "年度",
@@ -29,22 +32,27 @@ REQUIRED_COLUMNS = {
     "自留滿期損失率",
 }
 
+# Metric IDs must match config/metrics_2025.csv and
+# config/output_fields_2025.csv.
 METRIC_COLUMNS = {
-    "自留綜合率": (
-        "reported_combined_ratio",
-        "Reported Combined Ratio",
-    ),
-    "自留費用率": (
-        "reported_expense_ratio",
-        "Expense Ratio",
-    ),
-    "自留滿期損失率": (
-        "reported_loss_ratio",
-        "Loss Ratio",
-    ),
+    "自留綜合率": {
+        "metric_id": "reported_combined_ratio",
+        "metric_name": "Reported Combined Ratio",
+        "ratio_denominator": "company_defined",
+    },
+    "自留費用率": {
+        "metric_id": "expense_ratio",
+        "metric_name": "Expense Ratio",
+        "ratio_denominator": "company_defined",
+    },
+    "自留滿期損失率": {
+        "metric_id": "loss_ratio",
+        "metric_name": "Loss Ratio",
+        "ratio_denominator": "net_premiums_earned",
+    },
 }
 
-OUTPUT_COLUMNS = [
+IMPORT_OUTPUT_COLUMNS = [
     "roc_year",
     "calendar_year",
     "quarter",
@@ -60,17 +68,58 @@ OUTPUT_COLUMNS = [
     "validation_status",
 ]
 
+COMPARISON_OUTPUT_COLUMNS = [
+    "record_id",
+    "company_id",
+    "reporting_scope",
+    "entity_type",
+    "fiscal_year",
+    "period_start",
+    "period_end",
+    "metric_id",
+    "metric_value",
+    "metric_unit",
+    "currency",
+    "monetary_scale",
+    "value_base_units",
+    "year_basis",
+    "adjustment_basis",
+    "ratio_denominator",
+    "value_origin",
+    "accounting_basis",
+    "source_document",
+    "source_url",
+    "source_page",
+    "chunk_id",
+    "evidence_text",
+    "definition_note",
+    "confidence_score",
+    "validation_status",
+    "warning_message",
+]
+
 MAPPING_REQUIRED_COLUMNS = {
     "source_company_name",
     "company_id",
 }
 
+COMPANY_REQUIRED_COLUMNS = {
+    "company_id",
+    "entity_type",
+    "reporting_scope",
+    "reporting_currency",
+    "fiscal_year",
+    "accounting_basis",
+}
+
 
 class TaiwanMetricsImportError(ValueError):
-    """Raised when an uploaded file is not a supported indicator report."""
+    """Raised when an uploaded report or related configuration is invalid."""
 
 
 def _read_bytes(source: str | Path | bytes | BinaryIO | TextIO) -> bytes:
+    """Return bytes from a path, byte string, or file-like object."""
+
     if isinstance(source, bytes):
         return source
 
@@ -91,6 +140,8 @@ def _read_bytes(source: str | Path | bytes | BinaryIO | TextIO) -> bytes:
 
 
 def _decode_report(raw: bytes) -> str:
+    """Decode UTF-8 or common Traditional Chinese CSV encodings."""
+
     for encoding in ("utf-8-sig", "cp950", "big5"):
         try:
             return raw.decode(encoding)
@@ -102,7 +153,20 @@ def _decode_report(raw: bytes) -> str:
     )
 
 
+def _read_config_csv(
+    source: str | Path | bytes | BinaryIO | TextIO,
+) -> pd.DataFrame:
+    """Read a small UTF-8/Big5 configuration CSV as strings."""
+
+    text = _decode_report(_read_bytes(source))
+    frame = pd.read_csv(io.StringIO(text), dtype="string").fillna("")
+    frame.columns = frame.columns.str.strip()
+    return frame
+
+
 def _find_header_row(rows: list[list[str]]) -> int:
+    """Locate the actual report header after the metadata rows."""
+
     for index, row in enumerate(rows):
         normalized = {cell.strip() for cell in row}
         if REQUIRED_COLUMNS.issubset(normalized):
@@ -115,6 +179,8 @@ def _find_header_row(rows: list[list[str]]) -> int:
 
 
 def _to_number(series: pd.Series, column_name: str) -> pd.Series:
+    """Convert a report column to numeric percentages."""
+
     cleaned = (
         series.astype("string")
         .str.strip()
@@ -139,7 +205,7 @@ def load_taiwan_indicator_report(
 ) -> pd.DataFrame:
     """Read an RPT-06161601 CSV and return one row per insurer.
 
-    Returned ratio values are numeric percentages, so ``88.87`` means
+    Ratio values remain percentage points.  For example, ``88.87`` represents
     ``88.87%`` rather than ``0.8887``.
     """
 
@@ -199,7 +265,7 @@ def load_taiwan_indicator_report(
 
 
 def to_standard_metrics(report: pd.DataFrame) -> pd.DataFrame:
-    """Convert the imported report to the app's long-form metric schema."""
+    """Convert the official wide report to the app's long-form import table."""
 
     missing = REQUIRED_COLUMNS.difference(report.columns)
     if missing:
@@ -220,15 +286,15 @@ def to_standard_metrics(report: pd.DataFrame) -> pd.DataFrame:
     )
 
     frames: list[pd.DataFrame] = []
-    for source_column, (metric_id, metric_name) in METRIC_COLUMNS.items():
+    for source_column, definition in METRIC_COLUMNS.items():
         frame = pd.DataFrame(
             {
                 "roc_year": report["年度"],
                 "calendar_year": report["年度"] + 1911,
                 "quarter": report["季度"],
                 "company_name": report["公司名稱"],
-                "metric_id": metric_id,
-                "metric_name": metric_name,
+                "metric_id": definition["metric_id"],
+                "metric_name": definition["metric_name"],
                 "value": report[source_column],
                 "unit": "percent",
                 "value_status": "reported",
@@ -241,7 +307,7 @@ def to_standard_metrics(report: pd.DataFrame) -> pd.DataFrame:
         frames.append(frame)
 
     metrics = pd.concat(frames, ignore_index=True)
-    metrics = metrics[OUTPUT_COLUMNS]
+    metrics = metrics[IMPORT_OUTPUT_COLUMNS]
     return metrics.sort_values(
         ["calendar_year", "quarter", "company_name", "metric_id"],
         kind="stable",
@@ -251,7 +317,7 @@ def to_standard_metrics(report: pd.DataFrame) -> pd.DataFrame:
 def import_taiwan_reported_metrics(
     source: str | Path | bytes | BinaryIO | TextIO,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return both the original wide report and standardized long metrics."""
+    """Return both the original wide report and long-form imported metrics."""
 
     report = load_taiwan_indicator_report(source)
     metrics = to_standard_metrics(report)
@@ -262,28 +328,28 @@ def add_company_ids(
     metrics: pd.DataFrame,
     mapping_source: str | Path | bytes | BinaryIO | TextIO,
 ) -> pd.DataFrame:
-    """Attach project company IDs using an external name-mapping CSV.
+    """Attach project company IDs using an external company-name mapping.
 
-    Insurers not included in the mapping remain available in the imported
+    Insurers not selected for the six-company comparison remain in the imported
     report and receive an empty ``company_id``.
     """
 
-    mapping_text = _decode_report(_read_bytes(mapping_source))
-    mapping = pd.read_csv(
-        io.StringIO(mapping_text),
-        dtype="string",
-    ).fillna("")
-    mapping.columns = mapping.columns.str.strip()
+    required_metric_columns = {"company_name", "metric_id"}
+    missing_metric_columns = required_metric_columns.difference(metrics.columns)
+    if missing_metric_columns:
+        raise TaiwanMetricsImportError(
+            "指標資料缺少必要欄位："
+            + "、".join(sorted(missing_metric_columns))
+        )
 
+    mapping = _read_config_csv(mapping_source)
     missing = MAPPING_REQUIRED_COLUMNS.difference(mapping.columns)
     if missing:
         raise TaiwanMetricsImportError(
             f"公司名稱對照檔缺少必要欄位：{'、'.join(sorted(missing))}"
         )
 
-    mapping = mapping[
-        ["source_company_name", "company_id"]
-    ].copy()
+    mapping = mapping[["source_company_name", "company_id"]].copy()
     mapping["source_company_name"] = (
         mapping["source_company_name"].astype("string").str.strip()
     )
@@ -322,13 +388,281 @@ def add_company_ids(
         validate="many_to_one",
     )
     mapped = mapped.drop(columns="source_company_name")
-    mapped["company_id"] = mapped["company_id"].fillna("")
+    mapped["company_id"] = mapped["company_id"].fillna("").astype("string")
 
     ordered_columns = [
         "company_id",
         *[column for column in mapped.columns if column != "company_id"],
     ]
     return mapped[ordered_columns]
+
+
+def _validate_company_config(companies: pd.DataFrame) -> pd.DataFrame:
+    """Validate and normalize the company metadata needed for output records."""
+
+    missing = COMPANY_REQUIRED_COLUMNS.difference(companies.columns)
+    if missing:
+        raise TaiwanMetricsImportError(
+            f"公司設定檔缺少必要欄位：{'、'.join(sorted(missing))}"
+        )
+
+    selected = companies[
+        [
+            "company_id",
+            "entity_type",
+            "reporting_scope",
+            "reporting_currency",
+            "fiscal_year",
+            "accounting_basis",
+        ]
+    ].copy()
+
+    for column in selected.columns:
+        selected[column] = selected[column].astype("string").str.strip()
+
+    required_text_columns = COMPANY_REQUIRED_COLUMNS - {"fiscal_year"}
+    blank_columns = [
+        column
+        for column in sorted(required_text_columns)
+        if selected[column].eq("").any()
+    ]
+    if blank_columns:
+        raise TaiwanMetricsImportError(
+            "公司設定檔不可留白的欄位："
+            + "、".join(blank_columns)
+        )
+
+    selected["fiscal_year"] = pd.to_numeric(
+        selected["fiscal_year"],
+        errors="coerce",
+    )
+    if selected["fiscal_year"].isna().any():
+        raise TaiwanMetricsImportError("公司設定檔的 fiscal_year 必須是整數。")
+    selected["fiscal_year"] = selected["fiscal_year"].astype("int64")
+
+    duplicate_ids = selected["company_id"].duplicated(keep=False)
+    if duplicate_ids.any():
+        ids = "、".join(
+            selected.loc[duplicate_ids, "company_id"].drop_duplicates()
+        )
+        raise TaiwanMetricsImportError(f"公司設定檔 company_id 重複：{ids}")
+
+    return selected
+
+
+def _period_dates(
+    years: pd.Series,
+    quarters: pd.Series,
+) -> tuple[pd.Series, pd.Series]:
+    """Return ISO period start and cumulative quarter-end dates."""
+
+    starts = pd.to_datetime(
+        years.astype("int64").astype("string") + "-01-01"
+    )
+    quarter_end_months = quarters.astype("int64") * 3
+    ends = pd.to_datetime(
+        [
+            f"{int(year):04d}-{int(month):02d}-01"
+            for year, month in zip(years, quarter_end_months)
+        ]
+    ) + pd.offsets.MonthEnd(0)
+    return starts.dt.strftime("%Y-%m-%d"), ends.to_series(
+        index=years.index
+    ).dt.strftime("%Y-%m-%d")
+
+
+def to_comparison_records(
+    metrics: pd.DataFrame,
+    companies_source: str | Path | bytes | BinaryIO | TextIO,
+) -> pd.DataFrame:
+    """Convert mapped Taiwan ratios to the project's 27-column output schema.
+
+    Only insurers with a non-empty ``company_id`` are included.  Unmapped
+    insurers remain available in the import table but are intentionally omitted
+    from the six-company comparison output.
+    """
+
+    required_columns = {
+        "company_id",
+        "company_name",
+        "roc_year",
+        "calendar_year",
+        "quarter",
+        "metric_id",
+        "value",
+        "unit",
+        "value_status",
+        "source_name",
+        "period_basis",
+        "validation_status",
+    }
+    missing = required_columns.difference(metrics.columns)
+    if missing:
+        raise TaiwanMetricsImportError(
+            "轉換全球比較格式前缺少欄位："
+            + "、".join(sorted(missing))
+        )
+
+    comparable = metrics.loc[
+        metrics["company_id"].astype("string").str.strip().ne("")
+    ].copy()
+    if comparable.empty:
+        raise TaiwanMetricsImportError(
+            "沒有任何公司連接至全球比較設定；請檢查公司名稱對照檔。"
+        )
+
+    allowed_metric_ids = {
+        definition["metric_id"] for definition in METRIC_COLUMNS.values()
+    }
+    unexpected_metric_ids = (
+        set(comparable["metric_id"].dropna().astype(str))
+        - allowed_metric_ids
+    )
+    if unexpected_metric_ids:
+        raise TaiwanMetricsImportError(
+            "台灣官方指標包含未支援的 metric_id："
+            + "、".join(sorted(unexpected_metric_ids))
+        )
+
+    companies = _validate_company_config(
+        _read_config_csv(companies_source)
+    )
+    comparable = comparable.merge(
+        companies,
+        on="company_id",
+        how="left",
+        validate="many_to_one",
+        indicator=True,
+    )
+
+    missing_company_ids = sorted(
+        comparable.loc[
+            comparable["_merge"].ne("both"),
+            "company_id",
+        ].drop_duplicates()
+    )
+    if missing_company_ids:
+        raise TaiwanMetricsImportError(
+            "companies_2025.csv 找不到 company_id："
+            + "、".join(missing_company_ids)
+        )
+    comparable = comparable.drop(columns="_merge")
+
+    year_mismatch = comparable["calendar_year"].astype("int64").ne(
+        comparable["fiscal_year"]
+    )
+    if year_mismatch.any():
+        ids = "、".join(
+            comparable.loc[year_mismatch, "company_id"].drop_duplicates()
+        )
+        raise TaiwanMetricsImportError(
+            f"上傳年度與公司設定的 fiscal_year 不一致：{ids}"
+        )
+
+    period_start, period_end = _period_dates(
+        comparable["calendar_year"],
+        comparable["quarter"],
+    )
+
+    source_column_by_metric = {
+        definition["metric_id"]: source_column
+        for source_column, definition in METRIC_COLUMNS.items()
+    }
+    denominator_by_metric = {
+        definition["metric_id"]: definition["ratio_denominator"]
+        for definition in METRIC_COLUMNS.values()
+    }
+
+    official_metric_name = comparable["metric_id"].map(
+        source_column_by_metric
+    )
+    evidence_text = (
+        comparable["company_name"].astype("string")
+        + "｜民國"
+        + comparable["roc_year"].astype("int64").astype("string")
+        + "年第"
+        + comparable["quarter"].astype("int64").astype("string")
+        + "季｜"
+        + official_metric_name.astype("string")
+        + "："
+        + comparable["value"].map(lambda value: f"{value:g}")
+        + "%"
+    )
+
+    output = pd.DataFrame(
+        {
+            "record_id": (
+                "taiwan_"
+                + comparable["company_id"].astype("string")
+                + "_"
+                + comparable["calendar_year"].astype("int64").astype("string")
+                + "_q"
+                + comparable["quarter"].astype("int64").astype("string")
+                + "_"
+                + comparable["metric_id"].astype("string")
+            ),
+            "company_id": comparable["company_id"],
+            "reporting_scope": comparable["reporting_scope"],
+            "entity_type": comparable["entity_type"],
+            "fiscal_year": comparable["calendar_year"].astype("int64"),
+            "period_start": period_start,
+            "period_end": period_end,
+            "metric_id": comparable["metric_id"],
+            "metric_value": comparable["value"],
+            "metric_unit": "percent",
+            "currency": "not_applicable",
+            "monetary_scale": "not_applicable",
+            "value_base_units": pd.NA,
+            "year_basis": comparable["period_basis"],
+            "adjustment_basis": "reported",
+            "ratio_denominator": comparable["metric_id"].map(
+                denominator_by_metric
+            ),
+            "value_origin": comparable["value_status"],
+            "accounting_basis": comparable["accounting_basis"],
+            "source_document": comparable["source_name"],
+            "source_url": REPORT_SOURCE_URL,
+            "source_page": REPORT_CODE,
+            "chunk_id": "",
+            "evidence_text": evidence_text,
+            "definition_note": (
+                "官方揭露之"
+                + official_metric_name.astype("string")
+                + "；保留原始揭露值，未由程式重新計算。"
+            ),
+            "confidence_score": 1.0,
+            "validation_status": comparable["validation_status"].map(
+                {"passed": "verified", "ratio_mismatch": "warning"}
+            ),
+            "warning_message": comparable["validation_status"].map(
+                {
+                    "passed": "",
+                    "ratio_mismatch": (
+                        "自留費用率與自留滿期損失率之和，"
+                        "和自留綜合率差異超過0.02個百分點。"
+                    ),
+                }
+            ),
+        }
+    )
+
+    if output["validation_status"].isna().any():
+        statuses = sorted(
+            comparable.loc[
+                output["validation_status"].isna(),
+                "validation_status",
+            ].drop_duplicates()
+        )
+        raise TaiwanMetricsImportError(
+            "無法轉換 validation_status："
+            + "、".join(map(str, statuses))
+        )
+
+    output = output[COMPARISON_OUTPUT_COLUMNS]
+    return output.sort_values(
+        ["fiscal_year", "company_id", "metric_id"],
+        kind="stable",
+    ).reset_index(drop=True)
 
 
 def company_metric_summary(
@@ -338,7 +672,7 @@ def company_metric_summary(
     calendar_year: int | None = None,
     quarter: int | None = None,
 ) -> pd.DataFrame:
-    """Select one insurer and pivot its reported ratios for display or merging."""
+    """Select one insurer and pivot its reported ratios for display."""
 
     selected = metrics.loc[metrics["company_name"].eq(company_name)].copy()
 
@@ -367,4 +701,12 @@ def company_metric_summary(
         values="value",
     ).reset_index()
     summary.columns.name = None
+
+    # Temporary compatibility aliases keep the current Streamlit section
+    # working until streamlit_taiwan_import_section.py is updated.
+    if "loss_ratio" in summary and "reported_loss_ratio" not in summary:
+        summary["reported_loss_ratio"] = summary["loss_ratio"]
+    if "expense_ratio" in summary and "reported_expense_ratio" not in summary:
+        summary["reported_expense_ratio"] = summary["expense_ratio"]
+
     return summary
